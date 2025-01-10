@@ -8,7 +8,7 @@ A project to combine generative AI and GBM to generate high-quality virtual stoc
 ```
 sh ./scripts/data_download.sh
 ```
-**shell code Details (example)**
+**shell code details (example)**
 ```
 python run.py \
    --task_name data_download \
