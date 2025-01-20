@@ -1,5 +1,9 @@
 from common_imports import *
 from data.data_download import download_stock_data
+from data.data_loader import StockDataLoader
+from models.GAN import GAN
+from scripts.train_gan import train
+from scripts.test_gan import test
 
 fix_seed = 42
 random.seed(fix_seed)
@@ -8,7 +12,9 @@ np.random.seed(fix_seed)
 ## ==================================================
 parser = argparse.ArgumentParser(description="Stock generative GBM")
 
+## ==================================================
 ## basic config
+## ==================================================
 parser.add_argument(
     "--task_name",
     type=str,
@@ -17,12 +23,14 @@ parser.add_argument(
     help="task name [options : data_download]"
 )
 
+## ==================================================
 ## data download
+## ==================================================
 parser.add_argument(
-        '--output_dir',
-        type=str,
-        default='./stock_data/Nasdaq30/',
-        help='origin data directory'
+    '--output_dir',
+    type=str,
+    default='./stock_data/Nasdaq30/',
+    help='origin data directory'
     )
 parser.add_argument(
     '--tickers',
@@ -58,7 +66,7 @@ Parsing the arguments here
 args = parser.parse_args()
 
 if args.task_name == "data_download":
-    print("")
+    print("Start downloading the original data")
     
     download_stock_data(
         args.output_dir, 

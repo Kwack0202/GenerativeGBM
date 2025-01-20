@@ -1,6 +1,6 @@
 from common_imports import *
 
-def download_stock_data(output_dir, stock_tickers, start_day, end_day):
+def download_stock_data(output_dir, stock_tickers, start_day, end_day,):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
