@@ -49,7 +49,9 @@ import torch.optim as optim
 from torch.nn.utils import weight_norm
 
 # ======================================================
-# Quant-gan
+# gmm preprocessing
 from scipy.optimize import fmin
 from scipy.special import lambertw
 from scipy.stats import kurtosis, norm
+from scipy.stats import ks_2samp
+import statsmodels.api as sm
