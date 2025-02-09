@@ -73,7 +73,9 @@ parser.add_argument('--min_epochs', type=int, default=500, help='min_epochs')
 parser.add_argument('--check_interval', type=int, default=10, help='check_interval')
 parser.add_argument('--ks_threshold', type=float, default=0.05, help='ks_threshold')
 parser.add_argument('--pvalue_threshold', type=float, default=0.05, help='pvalue_threshold')
-parser.add_argument('--coverage_threshold', type=float, default=0.9, help='pvalue_threshold')
+parser.add_argument('--fake_sample', type=int, default=10, help='confidence')
+parser.add_argument('--confidence', type=float, default=0.8, help='confidence')
+parser.add_argument('--coverage_threshold', type=float, default=0.9, help='coverage_threshold')
 
 '''
 hyperparameter(simulate)
@@ -122,6 +124,8 @@ elif args.task_name == 'train':
         check_interval: {}
         ks_threshold: {}
         pvalue_threshold: {}
+        fake_sample: {}
+        confidence: {}
         coverage_threshold: {}
         num_simulations:{}
         num_noise_samples:{}""".format(
@@ -144,6 +148,8 @@ elif args.task_name == 'train':
             args.check_interval,
             args.ks_threshold,
             args.pvalue_threshold,
+            args.fake_sample,
+            args.confidence,
             args.coverage_threshold,
             args.num_simulations,
             args.num_noise_samples,

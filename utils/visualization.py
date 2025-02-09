@@ -43,7 +43,7 @@ def plot_confidence_interval(train_close, lower_bound, upper_bound, test_close, 
     """
     plt.figure(figsize=(15, 7))
     plt.plot(train_close, color='blue', label='Train Real Data', linewidth=1)
-    plt.fill_between(range(len(train_close)), lower_bound, upper_bound, color='orange', alpha=0.3, label='95% Confidence Interval')
+    plt.fill_between(range(len(train_close)), lower_bound, upper_bound, color='orange', alpha=0.3, label='Confidence Interval')
     
     # 시뮬레이션된 경로 플롯 
     for i in range(num_plot):

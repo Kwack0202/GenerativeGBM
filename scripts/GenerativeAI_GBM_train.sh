@@ -17,9 +17,10 @@ python run.py \
     --num_epochs 2000 \
     --min_epochs 500 \
     --check_interval 10 \
-    --patience 10 \
-    --tolerance 0.0001 \
     --ks_threshold 0.05 \
     --pvalue_threshold 0.05 \
+    --fake_sample 10 \
+    --confidence 0.6 \
+    --coverage_threshold 0.95 \
     --num_simulations 10 \
     --num_noise_samples 1

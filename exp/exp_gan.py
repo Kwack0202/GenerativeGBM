@@ -74,7 +74,7 @@ class Exp_GAN(Exp_Basic):
 
                 # ====================================
                 # step 1. Data preprecessing (GMM)
-                Ticker_log_train = np.log(train_df['Close'] / train_df['Close'].shift(1))[1:].values
+                Ticker_log_train = np.log(train_df['Adj Close'] / train_df['Adj Close'].shift(1))[1:].values
                 Ticker_log_mean, params, Ticker_max, Ticker_processed = self._get_data(Ticker_log_train)
                 
                 self.Ticker_log_mean = Ticker_log_mean
@@ -122,21 +122,26 @@ class Exp_GAN(Exp_Basic):
                             optG.step()
                         
                     progress.set_description(f'Loss_D: {lossD.item():.8f} Loss_G: {lossG.item():.8f}') 
+                    
                     # Monitoring & EarlyStop
                     if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
                         
                         # ==============================================
                         # Early stop 1. Confidence coverage 
-                        fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=10)
-                        fake_array = fake_data.values
+                        P0 = train_df['Adj Close'].iloc[0]
+                        
+                        fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample, generator=netG)
+                        fake_array = P0 * np.exp(fake_data.values)
                         
                         # 각 시점별 2.5%와 97.5% 백분위수 계산 → 95% 신뢰구간
-                        lower_bound = np.percentile(fake_array, 2.5, axis=1)
-                        upper_bound = np.percentile(fake_array, 97.5, axis=1)
+                        conf_level = (1-self.args.confidence) / 2 * 100
+                        lower_bound = np.percentile(fake_array, conf_level, axis=1)
+                        upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)
                         
                         # 실제 train 로그 수익률 누적합 (누적 로그수익률)
                         real_cumsum = Ticker_log_train.cumsum()
-                        coverage = np.mean((real_cumsum >= lower_bound) & (real_cumsum <= upper_bound))
+                        real_prices = P0 * np.exp(real_cumsum)
+                        coverage = np.mean((real_prices >= lower_bound) & (real_prices <= upper_bound))
                         
                         # ==============================================
                         # Early stop 2. K-S Test 
@@ -155,12 +160,12 @@ class Exp_GAN(Exp_Basic):
                     os.makedirs(output_root + f'Sliding_Window_{num_window+1}/')
                             
                 # Checkpoint
-                torch.save(netG, output_root + f'Sliding_Window_{num_window+1}/netG_epoch_{self.args.num_epochs}.pth')
-                torch.save(netD, output_root + f'Sliding_Window_{num_window+1}/netD_epoch_{self.args.num_epochs}.pth')
+                torch.save(netG, output_root + f'Sliding_Window_{num_window+1}/netG_best.pth')
+                torch.save(netD, output_root + f'Sliding_Window_{num_window+1}/netD_best.pth')
 
                 # ====================================
                 # step 5. Simulation
-                self.netG = torch.load(output_root + f'Sliding_Window_{num_window+1}/netG_epoch_{self.args.num_epochs}.pth')
+                self.netG = torch.load(output_root + f'Sliding_Window_{num_window+1}/netG_best.pth')
                 self.netG.eval()
                                 
                 '''
@@ -169,22 +174,24 @@ class Exp_GAN(Exp_Basic):
                 real_cumsum = Ticker_log_train.cumsum()
                 fakes_cumsum = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True).flatten()
                 
-                P0 = train_df['Close'].iloc[0]
+                P0 = train_df['Adj Close'].iloc[0]
                 real_prices = P0 * np.exp(real_cumsum)
                 fake_prices = P0 * np.exp(fakes_cumsum)
                 
                 '''
                 Generate Confidence coverage using GAN (Train period)
                 '''
-                fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=10)
-                fake_array = fake_data.values
-                lower_bound = np.percentile(fake_array, 2.5, axis=1)
-                upper_bound = np.percentile(fake_array, 97.5, axis=1)                 
+                fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample)
+                fake_array = P0 * np.exp(fake_data.values)
+                
+                conf_level = (1-self.args.confidence) / 2 * 100
+                lower_bound = np.percentile(fake_array, conf_level, axis=1)
+                upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)                 
                         
                 '''
                 Generate Fake Data using GBM (Test period)
                 '''
-                Ticker_log_test = np.log(test_df['Close'] / test_df['Close'].shift(1))[1:].values
+                Ticker_log_test = np.log(test_df['Adj Close'] / test_df['Adj Close'].shift(1))[1:].values
 
                 # 테스트 데이터의 로그 수익률 정규화
                 Ticker_log_test_norm = Ticker_log_test - Ticker_log_mean
@@ -196,8 +203,8 @@ class Exp_GAN(Exp_Basic):
                 dt = 1/252  # 일 단위
 
                 # GBM MonteCarlo Simulation
-                test_close = test_df['Close'].values
-                S0_price = train_df['Close'].iloc[-1]
+                test_close = test_df['Adj Close'].values
+                S0_price = train_df['Adj Close'].iloc[-1]
                 
                 
                 simulated_S = self.simulate_gbm_multiple(
@@ -349,10 +356,10 @@ class Exp_GAN(Exp_Basic):
                 test_length = len(test_df) - 1  # 첫 행은 S₀로 사용
                 T = test_length / 252    # 거래일 기준 연 단위
                 dt = 1 / 252
-                S0_price = train_df['Close'].iloc[-1]  # 학습 구간 마지막 종가를 초기 가격으로 사용
+                S0_price = train_df['Adj Close'].iloc[-1]  # 학습 구간 마지막 종가를 초기 가격으로 사용
                 
                 # 학습 구간의 로그수익률을 기반으로 drift와 volatility 계산
-                Ticker_log_train = np.log(train_df['Close'] / train_df['Close'].shift(1))[1:].values
+                Ticker_log_train = np.log(train_df['Adj Close'] / train_df['Adj Close'].shift(1))[1:].values
                 mu = np.mean(Ticker_log_train) * 500
                 sigma = np.std(Ticker_log_train) * 20
                 
