@@ -71,10 +71,9 @@ hyperparameter(monitoring)
 '''
 parser.add_argument('--min_epochs', type=int, default=500, help='min_epochs')
 parser.add_argument('--check_interval', type=int, default=10, help='check_interval')
-parser.add_argument('--patience', type=int, default=10, help='patience')
-parser.add_argument('--tolerance', type=float, default=1e-4, help='tolerance')
 parser.add_argument('--ks_threshold', type=float, default=0.05, help='ks_threshold')
 parser.add_argument('--pvalue_threshold', type=float, default=0.05, help='pvalue_threshold')
+parser.add_argument('--coverage_threshold', type=float, default=0.9, help='pvalue_threshold')
 
 '''
 hyperparameter(simulate)
@@ -121,10 +120,9 @@ elif args.task_name == 'train':
         num_epochs: {}
         min_epochs: {}
         check_interval: {}
-        patience: {}
-        tolerance: {}
         ks_threshold: {}
         pvalue_threshold: {}
+        coverage_threshold: {}
         num_simulations:{}
         num_noise_samples:{}""".format(
             args.task_name,
@@ -144,10 +142,9 @@ elif args.task_name == 'train':
             args.num_epochs,
             args.min_epochs,
             args.check_interval,
-            args.patience,
-            args.tolerance,
             args.ks_threshold,
             args.pvalue_threshold,
+            args.coverage_threshold,
             args.num_simulations,
             args.num_noise_samples,
         )

@@ -94,6 +94,9 @@ class Exp_GAN(Exp_Basic):
                 
                 # ====================================
                 # step 4. Model train
+                best_loss = float('inf')
+                no_improve_counter = 0
+                
                 progress = tqdm(range(self.args.num_epochs))
                 for epoch in progress:
                     for i, data in enumerate(dataloader, 0):
@@ -117,11 +120,39 @@ class Exp_GAN(Exp_Basic):
                             lossG = torch.mean(torch.log(1. - netD(netG(noise))))
                             lossG.backward()
                             optG.step()
+                        
+                    progress.set_description(f'Loss_D: {lossD.item():.8f} Loss_G: {lossG.item():.8f}') 
+                    # Monitoring & EarlyStop
+                    if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
+                        
+                        # ==============================================
+                        # Early stop 1. Confidence coverage 
+                        fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=10)
+                        fake_array = fake_data.values
+                        
+                        # 각 시점별 2.5%와 97.5% 백분위수 계산 → 95% 신뢰구간
+                        lower_bound = np.percentile(fake_array, 2.5, axis=1)
+                        upper_bound = np.percentile(fake_array, 97.5, axis=1)
+                        
+                        # 실제 train 로그 수익률 누적합 (누적 로그수익률)
+                        real_cumsum = Ticker_log_train.cumsum()
+                        coverage = np.mean((real_cumsum >= lower_bound) & (real_cumsum <= upper_bound))
+                        
+                        # ==============================================
+                        # Early stop 2. K-S Test 
+                        generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator = netG)
+                        real_noise = Ticker_processed.flatten()
+                        ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
+                        print(f"\n[Monitoring] Epoch {epoch+1}: KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
 
-                    progress.set_description(f'Loss_D: {lossD.item():.8f} Loss_G: {lossG.item():.8f}')
-                    
-                    if not os.path.exists(output_root + f'Sliding_Window_{num_window+1}/'):
-                        os.makedirs(output_root + f'Sliding_Window_{num_window+1}/')
+                        
+                        # 얼리스탑 조건: KS p-value가 일정 수준 이상(예: > 0.05)이고, 신뢰구간 커버리지가 충분히 높을 때(예: > 0.9)
+                        if ks_stat < self.args.ks_threshold and ks_pvalue > self.args.pvalue_threshold and coverage > self.args.coverage_threshold:
+                            print(f"[Early Stopping] Epoch {epoch+1}: KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
+                            break
+                        
+                if not os.path.exists(output_root + f'Sliding_Window_{num_window+1}/'):
+                    os.makedirs(output_root + f'Sliding_Window_{num_window+1}/')
                             
                 # Checkpoint
                 torch.save(netG, output_root + f'Sliding_Window_{num_window+1}/netG_epoch_{self.args.num_epochs}.pth')
@@ -142,6 +173,14 @@ class Exp_GAN(Exp_Basic):
                 real_prices = P0 * np.exp(real_cumsum)
                 fake_prices = P0 * np.exp(fakes_cumsum)
                 
+                '''
+                Generate Confidence coverage using GAN (Train period)
+                '''
+                fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=10)
+                fake_array = fake_data.values
+                lower_bound = np.percentile(fake_array, 2.5, axis=1)
+                upper_bound = np.percentile(fake_array, 97.5, axis=1)                 
+                        
                 '''
                 Generate Fake Data using GBM (Test period)
                 '''
@@ -171,23 +210,23 @@ class Exp_GAN(Exp_Basic):
                     nz=self.args.noise_input_size,
                     num_simulations=self.args.num_simulations,
                 )
-                
                 plot_simulations(real_prices, fake_prices, test_close, simulated_S, num_plot=self.args.num_simulations,
                                  save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'simulation_result.png'))
                 
+                plot_confidence_interval(real_prices, lower_bound, upper_bound, test_close, simulated_S, num_plot=10, 
+                                         save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', f'confidence_results.png'))
+                    
                 # 학습된 노이즈 분포 추출 및 시각화
                 learned_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, device=self.device)
-                
-                # 실제 노이즈는 학습 데이터의 정규화된 노이즈
                 real_noise = Ticker_processed.flatten()
-
+                
                 # 분포 시각화
                 visualize_noise_distribution(real_noise, learned_noise,
                                              hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'noise_distribution.png'),
                                              qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'qq_plot.png'),
                                              ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'ks_test.txt'))
         
-            torch.cuda.empty_cache()    
+                torch.cuda.empty_cache()    
     
     def generate_fakes(self, Ticker_log_train, nz, cumsum=True, n=1, generator=None):
         """
@@ -339,4 +378,4 @@ class Exp_GAN(Exp_Basic):
                 # CSV 파일로 저장 (예: simulation_result.csv)
                 simulation_file = os.path.join(sliding_folder, "simulated_paths.csv")
                 df_simulated.to_csv(simulation_file, index=False)
-                print(f"    [INFO] Window {window_idx+1}: 시뮬레이션 결과 저장 완료 → {simulation_file}")
+                print(f"[INFO] Window {window_idx+1}: 시뮬레이션 결과 저장 완료 → {simulation_file}")
