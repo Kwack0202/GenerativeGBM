@@ -13,9 +13,9 @@ python run.py \
     --model_optimizer Adam \
     --learning_rate 0.0002 \
     --seq_len 127 \
-    --batch_size 32 \
+    --batch_size 64 \
     --num_workers 0 \
-    --num_epochs 2000 \
+    --num_epochs 3000 \
     --min_epochs 500 \
     --check_interval 10 \
     --ks_threshold 0.05 \
@@ -23,5 +23,7 @@ python run.py \
     --fake_sample 10 \
     --confidence 0.8 \
     --coverage_threshold 0.8 \
+    --loss_tolerance 0.0001 \
+    --early_stop_patience 10 \
     --num_simulations 10 \
     --num_noise_samples 1

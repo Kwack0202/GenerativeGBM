@@ -78,6 +78,8 @@ parser.add_argument('--fake_sample', type=int, default=10, help='confidence')
 parser.add_argument('--confidence', type=float, default=0.8, help='confidence')
 parser.add_argument('--coverage_threshold', type=float, default=0.9, help='coverage_threshold')
 
+parser.add_argument('--loss_tolerance', type=float, default=0.0001, help='loss_tolerance')
+parser.add_argument('--early_stop_patience', type=int, default=10, help='early_stop_patience')
 '''
 hyperparameter(simulate)
 '''
@@ -129,6 +131,8 @@ elif args.task_name == 'train':
         fake_sample: {}
         confidence: {}
         coverage_threshold: {}
+        loss_tolerance: {}
+        early_stop_patience: {}
         num_simulations:{}
         num_noise_samples:{}""".format(
             args.task_name,
@@ -154,6 +158,8 @@ elif args.task_name == 'train':
             args.fake_sample,
             args.confidence,
             args.coverage_threshold,
+            args.loss_tolerance,
+            args.early_stop_patience,
             args.num_simulations,
             args.num_noise_samples,
         )

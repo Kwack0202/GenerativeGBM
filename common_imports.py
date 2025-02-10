@@ -26,6 +26,8 @@ import glob
 from tqdm import tqdm
 from datetime import datetime
 
+import copy
+
 # ======================================================
 # visualize
 import matplotlib.pyplot as plt

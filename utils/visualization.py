@@ -68,8 +68,11 @@ def plot_confidence_interval(train_close, lower_bound, upper_bound, test_close, 
 # 노이즈 분포 시각화 함수 (출력 대신 PNG 파일로 저장하고, K-S test 결과를 txt 파일로 저장)
 def visualize_noise_distribution(real_noise, generated_noise, 
                                  hist_save_path='noise_distribution.png', 
-                                 qq_save_path='qq_plot.png', 
-                                 ks_output_path='ks_test.txt'):
+                                 qq_save_path='qq_plot.png'):
+    """
+    실 노이즈와 생성된 노이즈의 분포를 히스토그램과 Q-Q 플롯으로 저장합니다.
+    K-S 테스트 결과는 여기서 저장하지 않습니다.
+    """
     # 히스토그램 플롯 생성 및 저장
     plt.figure(figsize=(10, 6))
     plt.hist(real_noise, bins=100, alpha=0.5, label='Real Noise', density=True)
@@ -83,9 +86,6 @@ def visualize_noise_distribution(real_noise, generated_noise,
     plt.savefig(hist_save_path)
     plt.close('all')
 
-    # K-S 테스트 수행
-    ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
-    
     # Q-Q Plot 생성 및 저장
     plt.figure(figsize=(10, 6))
     sm.qqplot(generated_noise, line='45', fit=True)
@@ -94,8 +94,19 @@ def visualize_noise_distribution(real_noise, generated_noise,
     os.makedirs(os.path.dirname(qq_save_path), exist_ok=True)
     plt.savefig(qq_save_path)
     plt.close('all')
-    
-    # K-S test 결과를 텍스트 파일로 저장
+
+def calculate_ks_test(real_noise, generated_noise):
+    """
+    실 노이즈와 생성된 노이즈에 대해 K-S 테스트를 수행하여
+    (ks_stat, ks_pvalue)를 반환합니다.
+    """
+    ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
+    return ks_stat, ks_pvalue
+
+def save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path='ks_test.txt'):
+    """
+    K-S 테스트 결과와 coverage 값을 텍스트 파일에 저장합니다.
+    """
     os.makedirs(os.path.dirname(ks_output_path), exist_ok=True)
     with open(ks_output_path, 'w') as f:
-        f.write(f'K-S Statistic: {ks_stat:.4f}, P-value: {ks_pvalue:.4f}\n')
+        f.write(f'K-S Statistic: {ks_stat:.4f}, P-value: {ks_pvalue:.4f}, Coverage: {coverage:.4f}\n')

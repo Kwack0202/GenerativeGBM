@@ -132,6 +132,13 @@ class Exp_GAN(Exp_Basic):
                 # ====================================
                 # step 4. Model train                
                 progress = tqdm(range(self.args.num_epochs))
+                
+                best_loss = float('inf')
+                early_stop_counter = 0
+                best_epoch = 0
+                best_netG = None
+                best_netD = None
+                
                 for epoch in progress:
                     for i, data in enumerate(dataloader, 0):
                         
@@ -166,11 +173,13 @@ class Exp_GAN(Exp_Basic):
                             optG.step()
                     
                     # ==============================================
-                    # Early stop 1. Confidence coverage 
+                    # Metric 1.Confidence coverage 
                     P0 = train_df['Adj Close'].iloc[0]
+                    real_cumsum = Ticker_log_train.cumsum()
+                    real_prices = P0 * np.exp(real_cumsum)
                     
                     fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample, generator=netG)
-                    clipped_values = np.clip(fake_data.values, -10, 10) # Preventing overflows 
+                    clipped_values = np.clip(fake_data.values, real_cumsum.min(), real_cumsum.max()) # Preventing overflows 
                     fake_array = P0 * np.exp(clipped_values)
                     
                     # confidence interval
@@ -178,12 +187,10 @@ class Exp_GAN(Exp_Basic):
                     lower_bound = np.percentile(fake_array, conf_level, axis=1)
                     upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)
                     
-                    real_cumsum = Ticker_log_train.cumsum()
-                    real_prices = P0 * np.exp(real_cumsum)
                     coverage = np.mean((real_prices >= lower_bound) & (real_prices <= upper_bound))
                     
                     # ==============================================
-                    # Early stop 2. K-S Test 
+                    # Metric 2.K-S Test 
                     generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator = netG)
                     real_noise = Ticker_processed.flatten()
                     ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
@@ -195,21 +202,44 @@ class Exp_GAN(Exp_Basic):
                     # ==============================================
                     # Monitoring & EarlyStop
                     if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
+                        # KS, p-value, Coverage 조건이 모두 만족하면 loss 개선 여부를 체크
                         if ks_stat < self.args.ks_threshold and ks_pvalue > self.args.pvalue_threshold and coverage > self.args.coverage_threshold:
-                            print(f"[Early Stopping] Epoch {epoch+1}: KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
-                            break
-                
+                            # lossG가 지정한 tolerance 이상 개선되었으면 best_loss 갱신
+                            if lossG.item() < best_loss - self.args.loss_tolerance:
+                                best_loss = lossG.item()
+                                early_stop_counter = 0
+                                best_epoch = epoch + 1
+                                best_netG = copy.deepcopy(netG)
+                                best_netD = copy.deepcopy(netD)
+                            else:
+                                early_stop_counter += 1
+                            # patience 이상 개선이 없으면 얼리 스탑
+                            if early_stop_counter >= self.args.early_stop_patience:
+                                print(f"[Early Stopping] Epoch {epoch+1}: Loss improvement has not occurred for {early_stop_counter} consecutive times."
+                                      f"KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
+                                break
+                    # stop epoch loop
+                    if early_stop_counter >= self.args.early_stop_patience:
+                        break
+                    
+                # Checkpoint
                 sliding_folder = os.path.join(output_root, f'Sliding_Window_{num_window+1}/')
                 os.makedirs(sliding_folder, exist_ok=True)
-                                
-                # Checkpoint
-                torch.save(netG, os.path.join(sliding_folder, f'netG_epoch_{epoch + 1}.pth'))
-                torch.save(netD, os.path.join(sliding_folder, f'netD_epoch_{epoch + 1}.pth'))
-
+                if best_netG is not None:
+                    netG = best_netG
+                    netD = best_netD
+                    final_epoch = best_epoch
+                else:
+                    final_epoch = epoch + 1
+                
+                torch.save(netG, os.path.join(sliding_folder, f'netG_epoch_{final_epoch}.pth'))
+                torch.save(netD, os.path.join(sliding_folder, f'netD_epoch_{final_epoch}.pth'))
+                
                 # ====================================
                 # step 5. Simulation
-                self.netG = torch.load(os.path.join(sliding_folder, f'netG_epoch_{epoch + 1}.pth'))
+                self.netG = torch.load(os.path.join(sliding_folder, f'netG_epoch_{final_epoch}.pth'))
                 self.netG.eval()
+
                                 
                 '''
                 Generate Fake Data using GAN (Train period)
@@ -263,11 +293,14 @@ class Exp_GAN(Exp_Basic):
                 learned_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, device=self.device)
                 real_noise = Ticker_processed.flatten()
                 
+                ks_stat, ks_pvalue = calculate_ks_test(real_noise, learned_noise)
+                save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'save_metric.txt'))
+                
                 # 분포 시각화
-                visualize_noise_distribution(real_noise, learned_noise,
-                                             hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'noise_distribution.png'),
-                                             qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'qq_plot.png'),
-                                             ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'ks_test.txt'))
+                visualize_noise_distribution(real_noise, learned_noise, 
+                                            hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}','noise_distribution.png'),
+                                            qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}','qq_plot.png'))
+
         
                 torch.cuda.empty_cache()    
     
