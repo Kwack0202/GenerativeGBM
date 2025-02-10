@@ -3,7 +3,7 @@ python run.py \
     --task_name train \
     --exp_root_path ./datasets/Nasdaq/ \
     --model_type GAN \
-    --model_name VanillaGAN \
+    --model_name WGAN \
     --test_start_year 2022 \
     --total_test_months 36 \
     --sliding_test_months 12 \
@@ -14,6 +14,7 @@ python run.py \
     --learning_rate 0.0002 \
     --seq_len 127 \
     --batch_size 32 \
+    --num_workers 0 \
     --num_epochs 2000 \
     --min_epochs 500 \
     --check_interval 10 \

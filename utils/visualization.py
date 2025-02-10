@@ -20,7 +20,7 @@ def plot_simulations(train_close, fake_prices, test_close, simulated_S, num_plot
     plt.plot(range(len(train_close), len(train_close) + len(test_close)), 
              test_close, color='red', label='Test Real Data', linewidth=1)
     
-    plt.title('GBM Data')
+    plt.title('GenerativeAI-GBM')
     plt.xlabel('Time Steps (Days)')
     plt.ylabel('Stock Price')
     plt.legend()
@@ -29,7 +29,7 @@ def plot_simulations(train_close, fake_prices, test_close, simulated_S, num_plot
     # 지정한 경로에 저장 (디렉토리가 없으면 생성)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path)
-    plt.close()
+    plt.close('all')
 
 def plot_confidence_interval(train_close, lower_bound, upper_bound, test_close, simulated_S, num_plot=10, save_path='confidence_interval.png'):
     """
@@ -55,7 +55,7 @@ def plot_confidence_interval(train_close, lower_bound, upper_bound, test_close, 
     plt.plot(range(len(train_close), len(train_close) + len(test_close)), 
              test_close, color='red', label='Test Real Data', linewidth=1)
     
-    plt.title('Train Data with 95% Confidence Interval from GAN-generated Fake Data')
+    plt.title('Train Data with Confidence Interval from GAN-generated Fake Data')
     plt.xlabel('Time Steps (Days)')
     plt.ylabel('Stock Price')
     plt.legend()
@@ -63,7 +63,7 @@ def plot_confidence_interval(train_close, lower_bound, upper_bound, test_close, 
     
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path)
-    plt.close()
+    plt.close('all')
     
 # 노이즈 분포 시각화 함수 (출력 대신 PNG 파일로 저장하고, K-S test 결과를 txt 파일로 저장)
 def visualize_noise_distribution(real_noise, generated_noise, 
@@ -81,7 +81,7 @@ def visualize_noise_distribution(real_noise, generated_noise,
     
     os.makedirs(os.path.dirname(hist_save_path), exist_ok=True)
     plt.savefig(hist_save_path)
-    plt.close()
+    plt.close('all')
 
     # K-S 테스트 수행
     ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
@@ -93,7 +93,7 @@ def visualize_noise_distribution(real_noise, generated_noise,
     
     os.makedirs(os.path.dirname(qq_save_path), exist_ok=True)
     plt.savefig(qq_save_path)
-    plt.close()
+    plt.close('all')
     
     # K-S test 결과를 텍스트 파일로 저장
     os.makedirs(os.path.dirname(ks_output_path), exist_ok=True)

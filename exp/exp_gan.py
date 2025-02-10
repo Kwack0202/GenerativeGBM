@@ -1,6 +1,8 @@
 from common_imports import *
 from exp.exp_basic import Exp_Basic
 from models.VanillaGAN import Generator, Discriminator
+from models.WGAN import WGenerator, WDiscriminator
+from models.QuantGAN import QuantGenerator, QuantDiscriminator
 from data.data_loader import StockDataset
 from utils.sliding_window import get_sliding_window_data
 from utils.gmm_preprecessing import *
@@ -15,7 +17,7 @@ class Exp_GAN(Exp_Basic):
         self.Ticker_max = None
         self.params = None 
     
-    def _get_data(self, Ticker_log_df): # 데이터의 평균과 정규화
+    def _get_data(self, Ticker_log_df):
         Ticker_log_mean = np.mean(Ticker_log_df)
         Ticker_log_norm = Ticker_log_df - Ticker_log_mean
         params = igmm(Ticker_log_norm)
@@ -29,6 +31,12 @@ class Exp_GAN(Exp_Basic):
         
         if self.args.model_name == 'VanillaGAN':   
             netG = Generator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
+        
+        elif self.args.model_name == 'WGAN':   
+            netG = WGenerator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
+            
+        elif self.args.model_name == 'QuantGAN':   
+            netG = QuantGenerator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
            
         return netG
 
@@ -36,6 +44,12 @@ class Exp_GAN(Exp_Basic):
         
         if self.args.model_name == 'VanillaGAN':
             netD = Discriminator(self.args.noise_output_size).to(self.device)
+        
+        elif self.args.model_name == 'WGAN':
+            netD = WDiscriminator(self.args.noise_output_size).to(self.device)
+        
+        elif self.args.model_name == 'QuantGAN':
+            netD = QuantDiscriminator(self.args.noise_output_size, self.args.noise_output_size).to(self.device)
         
         return netD
             
@@ -45,9 +59,29 @@ class Exp_GAN(Exp_Basic):
             optG = optim.Adam(netG.parameters(), lr=self.args.learning_rate, betas=(0.5, 0.999))
             optD = optim.Adam(netD.parameters(), lr=self.args.learning_rate, betas=(0.5, 0.999))
             
+        elif self.args.model_optimizer == 'RMSprop':
+            optG = optim.RMSprop(netG.parameters(), lr=self.args.learning_rate)
+            optD = optim.RMSprop(netD.parameters(), lr=self.args.learning_rate)
+            
+        else:
+            raise ValueError("Unknown optimizer specified")
         return optG, optD
     
+    def _save_settings(self):
+        """
+        Save the values of all parser arguments passed in run.py to the settings.txt file.
+        """
+        settings_folder = f'./outputs/{self.args.model_type}/{self.args.model_name}/'
+        os.makedirs(settings_folder, exist_ok=True)
+        settings_path = os.path.join(settings_folder, 'settings.txt')
+        with open(settings_path, 'w') as f:
+            for key, value in vars(self.args).items():
+                f.write(f"{key}: {value}\n")
+    
+                            
     def train_gan(self):
+        self._save_settings()
+        
         root_path = self.args.exp_root_path
         stock_tickers = [f for f in os.listdir(root_path) if f.endswith('.csv')]
         
@@ -90,13 +124,13 @@ class Exp_GAN(Exp_Basic):
                 # ====================================
                 # step 3. Dataset load
                 dataset = StockDataset(Ticker_processed, self.args.seq_len)
-                dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.args.batch_size, shuffle=True)
+                dataloader = torch.utils.data.DataLoader(dataset, 
+                                         batch_size=self.args.batch_size, 
+                                         shuffle=True, 
+                                         num_workers=self.args.num_workers)
                 
                 # ====================================
-                # step 4. Model train
-                best_loss = float('inf')
-                no_improve_counter = 0
-                
+                # step 4. Model train                
                 progress = tqdm(range(self.args.num_epochs))
                 for epoch in progress:
                     for i, data in enumerate(dataloader, 0):
@@ -107,65 +141,74 @@ class Exp_GAN(Exp_Basic):
                         noise = torch.randn(batch_size, seq_len, self.args.noise_input_size, device=self.device)
                         fake = netG(noise).detach()
 
-                        # Discriminator
-                        lossD_real = torch.mean(torch.log(netD(real)))
-                        lossD_fake = torch.mean(torch.log(1. - netD(fake)))
-                        lossD = -(lossD_real + lossD_fake)
-                        lossD.backward()
-                        optD.step()
-
+                        # Discriminator                        
+                        if self.args.model_name == 'VanillaGAN':
+                            lossD = -(torch.mean(torch.log(netD(real))) + torch.mean(torch.log(1. - netD(fake))))
+                            lossD.backward()
+                            optD.step()
+                        
+                        elif self.args.model_name in ['WGAN', 'QuantGAN']:
+                            lossD = -torch.mean(netD(real)) + torch.mean(netD(fake))
+                            lossD.backward()
+                            optD.step()
+                            
+                            for p in netD.parameters():
+                                p.data.clamp_(-0.01, 0.01)
+                                            
                         # Generator
                         if i % 5 == 0:
                             netG.zero_grad()
-                            lossG = torch.mean(torch.log(1. - netD(netG(noise))))
+                            if self.args.model_name == 'VanillaGAN':
+                                lossG = torch.mean(torch.log(1. - netD(netG(noise))))
+                            elif self.args.model_name in ['WGAN', 'QuantGAN']:
+                                lossG = -torch.mean(netD(netG(noise)))
                             lossG.backward()
                             optG.step()
-                        
-                    progress.set_description(f'Loss_D: {lossD.item():.8f} Loss_G: {lossG.item():.8f}') 
                     
+                    # ==============================================
+                    # Early stop 1. Confidence coverage 
+                    P0 = train_df['Adj Close'].iloc[0]
+                    
+                    fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample, generator=netG)
+                    clipped_values = np.clip(fake_data.values, -10, 10) # Preventing overflows 
+                    fake_array = P0 * np.exp(clipped_values)
+                    
+                    # confidence interval
+                    conf_level = (1-self.args.confidence) / 2 * 100
+                    lower_bound = np.percentile(fake_array, conf_level, axis=1)
+                    upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)
+                    
+                    real_cumsum = Ticker_log_train.cumsum()
+                    real_prices = P0 * np.exp(real_cumsum)
+                    coverage = np.mean((real_prices >= lower_bound) & (real_prices <= upper_bound))
+                    
+                    # ==============================================
+                    # Early stop 2. K-S Test 
+                    generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator = netG)
+                    real_noise = Ticker_processed.flatten()
+                    ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
+                        
+                    msg = f'Loss_D: {lossD.item():.8f} | Loss_G: {lossG.item():.8f} | KS statistic: {ks_stat:.6f} (p-value: {ks_pvalue:.4f}) | Coverage: {coverage:.4f}' 
+                    
+                    progress.set_description(msg)
+                    
+                    # ==============================================
                     # Monitoring & EarlyStop
                     if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
-                        
-                        # ==============================================
-                        # Early stop 1. Confidence coverage 
-                        P0 = train_df['Adj Close'].iloc[0]
-                        
-                        fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample, generator=netG)
-                        fake_array = P0 * np.exp(fake_data.values)
-                        
-                        # 각 시점별 2.5%와 97.5% 백분위수 계산 → 95% 신뢰구간
-                        conf_level = (1-self.args.confidence) / 2 * 100
-                        lower_bound = np.percentile(fake_array, conf_level, axis=1)
-                        upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)
-                        
-                        # 실제 train 로그 수익률 누적합 (누적 로그수익률)
-                        real_cumsum = Ticker_log_train.cumsum()
-                        real_prices = P0 * np.exp(real_cumsum)
-                        coverage = np.mean((real_prices >= lower_bound) & (real_prices <= upper_bound))
-                        
-                        # ==============================================
-                        # Early stop 2. K-S Test 
-                        generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator = netG)
-                        real_noise = Ticker_processed.flatten()
-                        ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
-                        print(f"\n[Monitoring] Epoch {epoch+1}: KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
-
-                        
-                        # 얼리스탑 조건: KS p-value가 일정 수준 이상(예: > 0.05)이고, 신뢰구간 커버리지가 충분히 높을 때(예: > 0.9)
                         if ks_stat < self.args.ks_threshold and ks_pvalue > self.args.pvalue_threshold and coverage > self.args.coverage_threshold:
                             print(f"[Early Stopping] Epoch {epoch+1}: KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
                             break
-                        
-                if not os.path.exists(output_root + f'Sliding_Window_{num_window+1}/'):
-                    os.makedirs(output_root + f'Sliding_Window_{num_window+1}/')
-                            
+                
+                sliding_folder = os.path.join(output_root, f'Sliding_Window_{num_window+1}/')
+                os.makedirs(sliding_folder, exist_ok=True)
+                                
                 # Checkpoint
-                torch.save(netG, output_root + f'Sliding_Window_{num_window+1}/netG_best.pth')
-                torch.save(netD, output_root + f'Sliding_Window_{num_window+1}/netD_best.pth')
+                torch.save(netG, os.path.join(sliding_folder, f'netG_epoch_{epoch + 1}.pth'))
+                torch.save(netD, os.path.join(sliding_folder, f'netD_epoch_{epoch + 1}.pth'))
 
                 # ====================================
                 # step 5. Simulation
-                self.netG = torch.load(output_root + f'Sliding_Window_{num_window+1}/netG_best.pth')
+                self.netG = torch.load(os.path.join(sliding_folder, f'netG_epoch_{epoch + 1}.pth'))
                 self.netG.eval()
                                 
                 '''
@@ -190,17 +233,10 @@ class Exp_GAN(Exp_Basic):
                         
                 '''
                 Generate Fake Data using GBM (Test period)
-                '''
-                Ticker_log_test = np.log(test_df['Adj Close'] / test_df['Adj Close'].shift(1))[1:].values
-
-                # 테스트 데이터의 로그 수익률 정규화
-                Ticker_log_test_norm = Ticker_log_test - Ticker_log_mean
-                Ticker_processed_test = W_delta((Ticker_log_test_norm - params[0]) / params[1], params[2])
-                Ticker_processed_test /= Ticker_max
-                
-                test_length = len(test_df) - 1  # 첫 날의 S0를 제외한 길이
-                T = test_length / 252  # 연 단위로 변환 (거래일 기준)
-                dt = 1/252  # 일 단위
+                '''                
+                test_length = len(test_df) - 1  # Test length excluding first day price
+                T = test_length / 252  # Convert to year (based on trading day)
+                dt = 1/252 # Days
 
                 # GBM MonteCarlo Simulation
                 test_close = test_df['Adj Close'].values
@@ -237,9 +273,7 @@ class Exp_GAN(Exp_Basic):
     
     def generate_fakes(self, Ticker_log_train, nz, cumsum=True, n=1, generator=None):
         """
-        학습된 생성기를 사용해 가상 로그수익률 데이터를 생성하고,
-        역변환(inverse transformation)을 수행하여 실제 로그수익률로 복원한 후,
-        누적합(cumsum) 형태로 반환하는 함수.
+        Using generators to generate virtual data(log return) and inverse scale(Cumsumed real price)
         """
         if generator is None:
             generator = self.netG
@@ -262,10 +296,7 @@ class Exp_GAN(Exp_Basic):
     
     def extract_learned_noise(self, num_sequences, seq_length, nz, generator=None, device=None):
         """
-        학습된 생성기를 통해 노이즈 샘플을 추출합니다.
-        
-        인자 generator가 None이면, self.netG를 사용하며,
-        device가 None이면 self.device를 사용합니다.
+        Extract noise samples using a generator.
         """
         if device is None:
             device = self.device
@@ -283,11 +314,7 @@ class Exp_GAN(Exp_Basic):
 
     def simulate_gbm_multiple(self, S0, mu, sigma, T, dt, nz, num_simulations, generator=None, device=None):
         """
-        학습된 생성기를 통해 추출한 노이즈를 사용하여
-        다수의 GBM 경로를 시뮬레이션합니다.
-        
-        인자 generator가 None이면, self.netG를 사용하며,
-        device가 None이면 self.device를 사용합니다.
+        Simulate multiple GBM paths using the extracted noise.
         """
         if device is None:
             device = self.device
@@ -303,22 +330,15 @@ class Exp_GAN(Exp_Basic):
         return S
     
     def simulate(self):
-        """
-        학습된 모든 종목의 슬라이딩 윈도우에 대해, 
-        각 윈도우의 test 구간에 대해 GBM 기반 가상 경로를 생성하고,
-        결과를 각 슬라이딩 윈도우 폴더에 CSV 파일로 저장합니다.
-        """
-        # self.args.exp_root_path 에는 원본 주식 데이터 CSV 파일들이 위치한다고 가정합니다.
         stock_files = [f for f in os.listdir(self.args.exp_root_path) if f.endswith('.csv')]
         
         for stock_file in stock_files:
             ticker_name = stock_file[:-4]  # 예: "AAPL.csv" → "AAPL"
             print(f"\n[INFO] Simulating for ticker: {ticker_name}")
             
-            # 주식 데이터 로드
+            # stock data load
             stock_data = pd.read_csv(os.path.join(self.args.exp_root_path, stock_file))
             
-            # 슬라이딩 윈도우 데이터 생성 (학습 시와 동일한 파라미터 사용)
             sliding_windows = get_sliding_window_data(
                 stock_data,
                 date_col='index',
@@ -332,14 +352,14 @@ class Exp_GAN(Exp_Basic):
                 print(f"[WARNING] 슬라이딩 윈도우 데이터가 없습니다. {ticker_name}는 건너뜁니다.")
                 continue
             
-            # 학습 시 저장된 출력 폴더 경로 (예: ./outputs/GAN/VanillaGAN/AAPL/Train_36_Test_12/)
+            # model pth file root (ex: ./outputs/GAN/VanillaGAN/AAPL/Train_36_Test_12/)
             base_output_folder = os.path.join('./outputs', self.args.model_type, self.args.model_name, ticker_name,
                                               f"Train_{self.args.train_months}_Test_{self.args.sliding_test_months}")
             if not os.path.exists(base_output_folder):
                 print(f"[WARNING] 출력 폴더 {base_output_folder} 가 존재하지 않습니다. {ticker_name}는 건너뜁니다.")
                 continue
             
-            # 각 슬라이딩 윈도우에 대해 시뮬레이션 실행
+            # Simulation
             for window_idx, (train_df, test_df, window_info) in enumerate(sliding_windows):
                 sliding_folder = os.path.join(base_output_folder, f"Sliding_Window_{window_idx+1}")
                 netG_file = os.path.join(sliding_folder, f"netG_epoch_{self.args.num_epochs}.pth")

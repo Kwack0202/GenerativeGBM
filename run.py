@@ -64,6 +64,7 @@ parser.add_argument('--model_optimizer', type=str, default='Adam', help='model_o
 parser.add_argument('--learning_rate', type=float, default=0.0002, help='learning_rate')
 parser.add_argument('--seq_len', type=int, default=127, help='sequence length')
 parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
+parser.add_argument('--num_workers', type=int, default=4, help='num_workers')
 parser.add_argument('--num_epochs', type=int, default=2000, help='num_epochs')
 
 '''
@@ -119,6 +120,7 @@ elif args.task_name == 'train':
         learning_rate: {}
         seq_len: {}
         batch_size: {}
+        num_workers: {}
         num_epochs: {}
         min_epochs: {}
         check_interval: {}
@@ -143,6 +145,7 @@ elif args.task_name == 'train':
             args.learning_rate,
             args.seq_len,
             args.batch_size,
+            args.num_workers,
             args.num_epochs,
             args.min_epochs,
             args.check_interval,

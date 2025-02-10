@@ -14,6 +14,7 @@ python run.py \
     --learning_rate 0.0002 \
     --seq_len 127 \
     --batch_size 32 \
+    --num_workers 0 \
     --num_epochs 2000 \
     --min_epochs 500 \
     --check_interval 10 \

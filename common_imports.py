@@ -55,3 +55,5 @@ from scipy.special import lambertw
 from scipy.stats import kurtosis, norm
 from scipy.stats import ks_2samp
 import statsmodels.api as sm
+
+plt.rcParams['savefig.dpi'] = 300  # dpi
