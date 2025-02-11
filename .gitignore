@@ -6,6 +6,7 @@ __pycache__/
 datasets/*
 outputs/*
 scripts/*
+
 !scripts/data_download.sh
 !scripts/GenerativeAI-GBM_train.sh
 
