@@ -199,23 +199,30 @@ class Exp_GAN(Exp_Basic):
                     
                     # ==============================================
                     # Monitoring & EarlyStop
-                    if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
+                    if (epoch + 1) >= self.args.min_epochs:
                         if ks_stat < self.args.ks_threshold and ks_pvalue > self.args.pvalue_threshold and coverage > self.args.coverage_threshold:
-                            if lossG.item() < best_loss - self.args.loss_tolerance:
+                            if best_netG is None:
                                 best_loss = lossG.item()
-                                early_stop_counter = 0
                                 best_epoch = epoch + 1
                                 best_netG = copy.deepcopy(netG)
                                 best_netD = copy.deepcopy(netD)
+                                early_stop_counter = 0
                             else:
-                                early_stop_counter += 1
-                            if early_stop_counter >= self.args.early_stop_patience:
-                                print(f"[Early Stopping] Epoch {epoch+1}: Loss improvement has not occurred for {early_stop_counter} consecutive times."
-                                      f" KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
-                                break
+                                if lossG.item() < best_loss - self.args.loss_tolerance:
+                                    best_loss = lossG.item()
+                                    best_epoch = epoch + 1
+                                    best_netG = copy.deepcopy(netG)
+                                    best_netD = copy.deepcopy(netD)
+                                    early_stop_counter = 0
+                                else:
+                                    early_stop_counter += 1
+                                    if early_stop_counter >= self.args.early_stop_patience:
+                                        print(f"[Early Stopping] Epoch {epoch+1}: No improvement for {early_stop_counter} consecutive epochs."
+                                              f" KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
+                                        break                    
                     if early_stop_counter >= self.args.early_stop_patience:
                         break
-                    
+                
                 # Checkpoint 저장 시, 별도의 폴더 생성 없이 파일명에 슬라이딩 윈도우 번호 접두어 추가
                 if best_netG is not None:
                     netG = best_netG

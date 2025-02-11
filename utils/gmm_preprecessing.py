@@ -30,7 +30,7 @@ def W_params(z, params):
 def inverse(z, params):
     return params[0] + params[1] * (z * np.exp(z * z * (params[2] * 0.5)))
 
-def igmm(z, eps=1e-6, max_iter=100):
+def igmm(z, eps=1e-6, max_iter=1000):
     delta = delta_init(z)
     params = [np.median(z), np.std(z) * (1. - 2. * delta) ** 0.75, delta]
     for k in range(max_iter):
@@ -43,6 +43,6 @@ def igmm(z, eps=1e-6, max_iter=100):
         if np.linalg.norm(np.array(params) - np.array(params_old)) < eps:
             break
         if k == max_iter - 1:
-            raise "Solution not found"
+            raise ValueError("Solution not found")
 
     return params
