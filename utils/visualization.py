@@ -103,7 +103,7 @@ def calculate_ks_test(real_noise, generated_noise):
     ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
     return ks_stat, ks_pvalue
 
-def save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path='ks_test.txt'):
+def save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path='save_metric.txt'):
     """
     K-S 테스트 결과와 coverage 값을 텍스트 파일에 저장합니다.
     """

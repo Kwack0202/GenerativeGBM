@@ -7,6 +7,7 @@ from data.data_loader import StockDataset
 from utils.sliding_window import get_sliding_window_data
 from utils.gmm_preprecessing import *
 from utils.visualization import *
+import copy
 
 class Exp_GAN(Exp_Basic):
     def __init__(self, args):
@@ -28,33 +29,30 @@ class Exp_GAN(Exp_Basic):
         return Ticker_log_mean, params, Ticker_max, Ticker_processed
     
     def _build_generator(self):
-        
         if self.args.model_name == 'VanillaGAN':   
             netG = Generator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
-        
+            
         elif self.args.model_name == 'WGAN':   
             netG = WGenerator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
             
         elif self.args.model_name == 'QuantGAN':   
             netG = QuantGenerator(self.args.noise_input_size, self.args.noise_output_size).to(self.device)
-           
+            
         return netG
 
     def _build_discriminator(self):
-        
         if self.args.model_name == 'VanillaGAN':
             netD = Discriminator(self.args.noise_output_size).to(self.device)
-        
+            
         elif self.args.model_name == 'WGAN':
             netD = WDiscriminator(self.args.noise_output_size).to(self.device)
-        
+            
         elif self.args.model_name == 'QuantGAN':
             netD = QuantDiscriminator(self.args.noise_output_size, self.args.noise_output_size).to(self.device)
-        
+            
         return netD
             
     def _select_optimizer(self, netG, netD):
-        
         if self.args.model_optimizer == 'Adam':
             optG = optim.Adam(netG.parameters(), lr=self.args.learning_rate, betas=(0.5, 0.999))
             optD = optim.Adam(netD.parameters(), lr=self.args.learning_rate, betas=(0.5, 0.999))
@@ -65,6 +63,7 @@ class Exp_GAN(Exp_Basic):
             
         else:
             raise ValueError("Unknown optimizer specified")
+        
         return optG, optD
     
     def _save_settings(self):
@@ -78,7 +77,6 @@ class Exp_GAN(Exp_Basic):
             for key, value in vars(self.args).items():
                 f.write(f"{key}: {value}\n")
     
-                            
     def train_gan(self):
         self._save_settings()
         
@@ -98,8 +96,9 @@ class Exp_GAN(Exp_Basic):
                 train_months=self.args.train_months
             )
             
-            # results save root (model pth file, plot, txt etc.)
+            # output_root는 ticker별 폴더로 생성됨.
             output_root = f'./outputs/{self.args.model_type}/{self.args.model_name}/{ticker[:-4]}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/'
+            os.makedirs(output_root, exist_ok=True)
                 
             for num_window, (train_df, test_df, window_info) in enumerate(windowed_data):
                 print(f"--- Sliding Window {num_window+1} ---")
@@ -141,7 +140,6 @@ class Exp_GAN(Exp_Basic):
                 
                 for epoch in progress:
                     for i, data in enumerate(dataloader, 0):
-                        
                         netD.zero_grad()
                         real = data.to(self.device)
                         batch_size, seq_len = real.size(0), real.size(1)
@@ -162,7 +160,7 @@ class Exp_GAN(Exp_Basic):
                             for p in netD.parameters():
                                 p.data.clamp_(-0.01, 0.01)
                                             
-                        # Generator
+                        # Generator update (매 5 스텝마다)
                         if i % 5 == 0:
                             netG.zero_grad()
                             if self.args.model_name == 'VanillaGAN':
@@ -173,38 +171,36 @@ class Exp_GAN(Exp_Basic):
                             optG.step()
                     
                     # ==============================================
-                    # Metric 1.Confidence coverage 
+                    # Metric 1. Confidence coverage 
                     P0 = train_df['Adj Close'].iloc[0]
                     real_cumsum = Ticker_log_train.cumsum()
                     real_prices = P0 * np.exp(real_cumsum)
                     
                     fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample, generator=netG)
-                    clipped_values = np.clip(fake_data.values, real_cumsum.min(), real_cumsum.max()) # Preventing overflows 
+                    # 클리핑 범위는 real_cumsum의 min, max를 사용
+                    clipped_values = np.clip(fake_data.values, real_cumsum.min(), real_cumsum.max())
                     fake_array = P0 * np.exp(clipped_values)
                     
-                    # confidence interval
-                    conf_level = (1-self.args.confidence) / 2 * 100
+                    # Confidence interval
+                    conf_level = (1 - self.args.confidence) / 2 * 100
                     lower_bound = np.percentile(fake_array, conf_level, axis=1)
                     upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)
                     
                     coverage = np.mean((real_prices >= lower_bound) & (real_prices <= upper_bound))
                     
                     # ==============================================
-                    # Metric 2.K-S Test 
-                    generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator = netG)
+                    # Metric 2. K-S Test 
+                    generated_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, generator=netG)
                     real_noise = Ticker_processed.flatten()
                     ks_stat, ks_pvalue = ks_2samp(real_noise, generated_noise)
                         
                     msg = f'Loss_D: {lossD.item():.8f} | Loss_G: {lossG.item():.8f} | KS statistic: {ks_stat:.6f} (p-value: {ks_pvalue:.4f}) | Coverage: {coverage:.4f}' 
-                    
                     progress.set_description(msg)
                     
                     # ==============================================
                     # Monitoring & EarlyStop
                     if (epoch + 1) % self.args.check_interval == 0 and (epoch + 1) >= self.args.min_epochs:
-                        # KS, p-value, Coverage 조건이 모두 만족하면 loss 개선 여부를 체크
                         if ks_stat < self.args.ks_threshold and ks_pvalue > self.args.pvalue_threshold and coverage > self.args.coverage_threshold:
-                            # lossG가 지정한 tolerance 이상 개선되었으면 best_loss 갱신
                             if lossG.item() < best_loss - self.args.loss_tolerance:
                                 best_loss = lossG.item()
                                 early_stop_counter = 0
@@ -213,18 +209,14 @@ class Exp_GAN(Exp_Basic):
                                 best_netD = copy.deepcopy(netD)
                             else:
                                 early_stop_counter += 1
-                            # patience 이상 개선이 없으면 얼리 스탑
                             if early_stop_counter >= self.args.early_stop_patience:
                                 print(f"[Early Stopping] Epoch {epoch+1}: Loss improvement has not occurred for {early_stop_counter} consecutive times."
-                                      f"KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
+                                      f" KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
                                 break
-                    # stop epoch loop
                     if early_stop_counter >= self.args.early_stop_patience:
                         break
                     
-                # Checkpoint
-                sliding_folder = os.path.join(output_root, f'Sliding_Window_{num_window+1}_')
-                os.makedirs(sliding_folder, exist_ok=True)
+                # Checkpoint 저장 시, 별도의 폴더 생성 없이 파일명에 슬라이딩 윈도우 번호 접두어 추가
                 if best_netG is not None:
                     netG = best_netG
                     netD = best_netD
@@ -232,15 +224,16 @@ class Exp_GAN(Exp_Basic):
                 else:
                     final_epoch = epoch + 1
                 
-                torch.save(netG, os.path.join(sliding_folder, f'netG_epoch_{final_epoch}.pth'))
-                torch.save(netD, os.path.join(sliding_folder, f'netD_epoch_{final_epoch}.pth'))
+                netG_save_path = os.path.join(output_root, f"Sliding_Window_{num_window+1}_netG_epoch_{final_epoch}.pth")
+                netD_save_path = os.path.join(output_root, f"Sliding_Window_{num_window+1}_netD_epoch_{final_epoch}.pth")
+                torch.save(netG, netG_save_path)
+                torch.save(netD, netD_save_path)
                 
                 # ====================================
                 # step 5. Simulation
-                self.netG = torch.load(os.path.join(sliding_folder, f'netG_epoch_{final_epoch}.pth'))
+                self.netG = torch.load(netG_save_path)
                 self.netG.eval()
 
-                                
                 '''
                 Generate Fake Data using GAN (Train period)
                 '''
@@ -257,21 +250,19 @@ class Exp_GAN(Exp_Basic):
                 fake_data = self.generate_fakes(Ticker_log_train, self.args.noise_input_size, cumsum=True, n=self.args.fake_sample)
                 fake_array = P0 * np.exp(fake_data.values)
                 
-                conf_level = (1-self.args.confidence) / 2 * 100
+                conf_level = (1 - self.args.confidence) / 2 * 100
                 lower_bound = np.percentile(fake_array, conf_level, axis=1)
                 upper_bound = np.percentile(fake_array, 100 - conf_level, axis=1)                 
                         
                 '''
                 Generate Fake Data using GBM (Test period)
                 '''                
-                test_length = len(test_df) - 1  # Test length excluding first day price
-                T = test_length / 252  # Convert to year (based on trading day)
-                dt = 1/252 # Days
+                test_length = len(test_df) - 1  # 첫 날 가격 제외
+                T = test_length / 252  # 거래일 기준 연 단위
+                dt = 1 / 252
 
-                # GBM MonteCarlo Simulation
                 test_close = test_df['Adj Close'].values
                 S0_price = train_df['Adj Close'].iloc[-1]
-                
                 
                 simulated_S = self.simulate_gbm_multiple(
                     S0=S0_price,
@@ -283,30 +274,28 @@ class Exp_GAN(Exp_Basic):
                     nz=self.args.noise_input_size,
                     num_simulations=self.args.num_simulations,
                 )
+                # 저장 시 파일명에 슬라이딩 윈도우 번호 접두어 추가
                 plot_simulations(real_prices, fake_prices, test_close, simulated_S, num_plot=self.args.num_simulations,
-                                 save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', 'simulation_result.png'))
+                                 save_path=os.path.join(output_root, f"Sliding_Window_{num_window+1}_simulation_result.png"))
                 
                 plot_confidence_interval(real_prices, lower_bound, upper_bound, test_close, simulated_S, num_plot=10, 
-                                         save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', f'confidence_results.png'))
+                                         save_path=os.path.join(output_root, f"Sliding_Window_{num_window+1}_confidence_results.png"))
                     
-                # 학습된 노이즈 분포 추출 및 시각화
                 learned_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, device=self.device)
                 real_noise = Ticker_processed.flatten()
                 
                 ks_stat, ks_pvalue = calculate_ks_test(real_noise, learned_noise)
-                save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', 'save_metric.txt'))
+                save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path=os.path.join(output_root, f"Sliding_Window_{num_window+1}_save_metric.txt"))
                 
-                # 분포 시각화
                 visualize_noise_distribution(real_noise, learned_noise, 
-                                            hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_','noise_distribution.png'),
-                                            qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_','qq_plot.png'))
-
+                                            hist_save_path=os.path.join(output_root, f"Sliding_Window_{num_window+1}_noise_distribution.png"),
+                                            qq_save_path=os.path.join(output_root, f"Sliding_Window_{num_window+1}_qq_plot.png"))
         
                 torch.cuda.empty_cache()    
     
     def generate_fakes(self, Ticker_log_train, nz, cumsum=True, n=1, generator=None):
         """
-        Using generators to generate virtual data(log return) and inverse scale(Cumsumed real price)
+        Using generators to generate virtual data (log return) and inverse scale (cumsumed real price)
         """
         if generator is None:
             generator = self.netG
@@ -344,7 +333,6 @@ class Exp_GAN(Exp_Basic):
                 noise_samples.extend(fake)
         return np.array(noise_samples)
     
-
     def simulate_gbm_multiple(self, S0, mu, sigma, T, dt, nz, num_simulations, generator=None, device=None):
         """
         Simulate multiple GBM paths using the extracted noise.
@@ -369,7 +357,6 @@ class Exp_GAN(Exp_Basic):
             ticker_name = stock_file[:-4]  # 예: "AAPL.csv" → "AAPL"
             print(f"\n[INFO] Simulating for ticker: {ticker_name}")
             
-            # stock data load
             stock_data = pd.read_csv(os.path.join(self.args.exp_root_path, stock_file))
             
             sliding_windows = get_sliding_window_data(
@@ -385,17 +372,15 @@ class Exp_GAN(Exp_Basic):
                 print(f"[WARNING] 슬라이딩 윈도우 데이터가 없습니다. {ticker_name}는 건너뜁니다.")
                 continue
             
-            # model pth file root (ex: ./outputs/GAN/VanillaGAN/AAPL/Train_36_Test_12/)
             base_output_folder = os.path.join('./outputs', self.args.model_type, self.args.model_name, ticker_name,
                                               f"Train_{self.args.train_months}_Test_{self.args.sliding_test_months}")
             if not os.path.exists(base_output_folder):
                 print(f"[WARNING] 출력 폴더 {base_output_folder} 가 존재하지 않습니다. {ticker_name}는 건너뜁니다.")
                 continue
             
-            # Simulation
             for window_idx, (train_df, test_df, window_info) in enumerate(sliding_windows):
-                sliding_folder = os.path.join(base_output_folder, f"Sliding_Window_{window_idx+1}")
-                netG_file = os.path.join(sliding_folder, f"netG_epoch_{self.args.num_epochs}.pth")
+                # 파일명에 sliding window 번호 접두어를 붙여서 모델 파일을 로드
+                netG_file = os.path.join(base_output_folder, f"Sliding_Window_{window_idx+1}_netG_epoch_{self.args.num_epochs}.pth")
                 
                 if not os.path.exists(netG_file):
                     print(f"[WARNING] {netG_file} 가 존재하지 않습니다. {ticker_name}의 window {window_idx+1} 건너뜁니다.")
@@ -405,20 +390,17 @@ class Exp_GAN(Exp_Basic):
                 self.netG = torch.load(netG_file, map_location=self.device)
                 self.netG.eval()
                 
-                # 테스트 구간 관련 파라미터 계산
-                test_length = len(test_df) - 1  # 첫 행은 S₀로 사용
-                T = test_length / 252    # 거래일 기준 연 단위
+                test_length = len(test_df) - 1  # 첫 행을 S₀로 사용
+                T = test_length / 252    
                 dt = 1 / 252
-                S0_price = train_df['Adj Close'].iloc[-1]  # 학습 구간 마지막 종가를 초기 가격으로 사용
+                S0_price = train_df['Adj Close'].iloc[-1]
                 
-                # 학습 구간의 로그수익률을 기반으로 drift와 volatility 계산
                 Ticker_log_train = np.log(train_df['Adj Close'] / train_df['Adj Close'].shift(1))[1:].values
                 mu = np.mean(Ticker_log_train) * 500
                 sigma = np.std(Ticker_log_train) * 20
                 
                 print(f"[INFO] Window {window_idx+1}: S0 = {S0_price}, mu = {mu:.4f}, sigma = {sigma:.4f}, T = {T:.4f}")
                 
-                # GBM 시뮬레이션 (이미 simulate_gbm_multiple에 netG를 사용하여 노이즈 추출)
                 simulated_paths = self.simulate_gbm_multiple(
                     S0=S0_price,
                     mu=mu,
@@ -429,13 +411,11 @@ class Exp_GAN(Exp_Basic):
                     num_simulations=self.args.num_simulations,
                 )
                 
-                # 결과 DataFrame 생성: 행은 시점, 열은 각 시뮬레이션 경로
                 df_simulated = pd.DataFrame(
                     simulated_paths.T,
                     columns=[f"simulation_{i+1}" for i in range(self.args.num_simulations)]
                 )
                 
-                # CSV 파일로 저장 (예: simulation_result.csv)
-                simulation_file = os.path.join(sliding_folder, "simulated_paths.csv")
+                simulation_file = os.path.join(base_output_folder, f"Sliding_Window_{window_idx+1}_simulated_paths.csv")
                 df_simulated.to_csv(simulation_file, index=False)
                 print(f"[INFO] Window {window_idx+1}: 시뮬레이션 결과 저장 완료 → {simulation_file}")

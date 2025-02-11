@@ -35,13 +35,13 @@ class TemporalBlock(nn.Module):
 
 # TCN using the revised TemporalBlock
 class TCN(nn.Module):
-    def __init__(self, input_size, output_size, n_hidden=80, num_layers=7, kernel_size=3):
+    def __init__(self, input_size, output_size, n_hidden=80, num_layers=4, kernel_size=3):
         """
         :param input_size: 입력 feature 차원
         :param output_size: 출력 feature 차원
         :param n_hidden: 각 레이어의 은닉 채널 수
-        :param num_layers: TemporalBlock의 레이어 수 (기본 7)
-        :param kernel_size: 커널 크기 (홀수여야 함; 여기서는 3로 설정)
+        :param num_layers: TemporalBlock의 레이어 수
+        :param kernel_size: 커널 크기 (홀수여야 함)
         """
         super(TCN, self).__init__()
         layers = []
