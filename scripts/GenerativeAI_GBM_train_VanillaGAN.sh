@@ -13,7 +13,7 @@ python run.py \
     --model_optimizer Adam \
     --learning_rate 0.0002 \
     --seq_len 127 \
-    --batch_size 32 \
+    --batch_size 64 \
     --num_workers 0 \
     --num_epochs 3000 \
     --min_epochs 500 \

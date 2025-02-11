@@ -223,7 +223,7 @@ class Exp_GAN(Exp_Basic):
                         break
                     
                 # Checkpoint
-                sliding_folder = os.path.join(output_root, f'Sliding_Window_{num_window+1}/')
+                sliding_folder = os.path.join(output_root, f'Sliding_Window_{num_window+1}_')
                 os.makedirs(sliding_folder, exist_ok=True)
                 if best_netG is not None:
                     netG = best_netG
@@ -284,22 +284,22 @@ class Exp_GAN(Exp_Basic):
                     num_simulations=self.args.num_simulations,
                 )
                 plot_simulations(real_prices, fake_prices, test_close, simulated_S, num_plot=self.args.num_simulations,
-                                 save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'simulation_result.png'))
+                                 save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', 'simulation_result.png'))
                 
                 plot_confidence_interval(real_prices, lower_bound, upper_bound, test_close, simulated_S, num_plot=10, 
-                                         save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', f'confidence_results.png'))
+                                         save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', f'confidence_results.png'))
                     
                 # 학습된 노이즈 분포 추출 및 시각화
                 learned_noise = self.extract_learned_noise(self.args.num_noise_samples, seq_length=len(Ticker_log_train), nz=self.args.noise_input_size, device=self.device)
                 real_noise = Ticker_processed.flatten()
                 
                 ks_stat, ks_pvalue = calculate_ks_test(real_noise, learned_noise)
-                save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}', 'save_metric.txt'))
+                save_metric_txt(ks_stat, ks_pvalue, coverage, ks_output_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_', 'save_metric.txt'))
                 
                 # 분포 시각화
                 visualize_noise_distribution(real_noise, learned_noise, 
-                                            hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}','noise_distribution.png'),
-                                            qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}','qq_plot.png'))
+                                            hist_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_','noise_distribution.png'),
+                                            qq_save_path=os.path.join(output_root, f'Sliding_Window_{num_window+1}_','qq_plot.png'))
 
         
                 torch.cuda.empty_cache()    
