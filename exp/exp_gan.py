@@ -70,9 +70,9 @@ class Exp_GAN(Exp_Basic):
         """
         Save the values of all parser arguments passed in run.py to the settings.txt file.
         """
-        settings_folder = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/'
+        settings_folder = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/{os.path.basename(os.path.normpath(self.args.exp_root_path))}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/'
         os.makedirs(settings_folder, exist_ok=True)
-        settings_path = os.path.join(settings_folder, 'settings.txt')
+        settings_path = os.path.join(settings_folder, f'settings.txt')
         with open(settings_path, 'w') as f:
             for key, value in vars(self.args).items():
                 f.write(f"{key}: {value}\n")
@@ -97,7 +97,7 @@ class Exp_GAN(Exp_Basic):
             )
             
             # output_root는 ticker별 폴더로 생성됨.
-            output_root = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/{ticker[:-4]}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/'
+            output_root = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/{os.path.basename(os.path.normpath(self.args.exp_root_path))}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/{ticker[:-4]}/'
             os.makedirs(output_root, exist_ok=True)
                 
             for num_window, (train_df, test_df, window_info) in enumerate(windowed_data):
