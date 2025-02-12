@@ -70,7 +70,7 @@ class Exp_GAN(Exp_Basic):
         """
         Save the values of all parser arguments passed in run.py to the settings.txt file.
         """
-        settings_folder = f'./outputs/{self.args.model_type}/{self.args.model_name}/'
+        settings_folder = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/'
         os.makedirs(settings_folder, exist_ok=True)
         settings_path = os.path.join(settings_folder, 'settings.txt')
         with open(settings_path, 'w') as f:
@@ -79,7 +79,7 @@ class Exp_GAN(Exp_Basic):
     
     def train_gan(self):
         self._save_settings()
-        
+    
         root_path = self.args.exp_root_path
         stock_tickers = [f for f in os.listdir(root_path) if f.endswith('.csv')]
         
@@ -97,16 +97,16 @@ class Exp_GAN(Exp_Basic):
             )
             
             # output_root는 ticker별 폴더로 생성됨.
-            output_root = f'./outputs/{self.args.model_type}/{self.args.model_name}/{ticker[:-4]}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/'
+            output_root = f'./outputs/seq_length_{self.args.seq_len}/{self.args.model_type}/{self.args.model_name}/{ticker[:-4]}/Train_{self.args.train_months}_Test_{self.args.sliding_test_months}/'
             os.makedirs(output_root, exist_ok=True)
                 
             for num_window, (train_df, test_df, window_info) in enumerate(windowed_data):
-                print(f"--- Sliding Window {num_window+1} ---")
+                print(f"\n--- Sliding Window {num_window+1} ---")
                 print(f"  Train period: {window_info['train_start']} ~ {window_info['train_end']} | Rows: {window_info['train_rows']}")
                 print(f"  Test period: {window_info['test_start']} ~ {window_info['test_end']} | Rows: {window_info['test_rows']}")
 
                 # ====================================
-                # step 1. Data preprecessing (GMM)
+                # step 1. Data preprocessing (GMM)
                 Ticker_log_train = np.log(train_df['Adj Close'] / train_df['Adj Close'].shift(1))[1:].values
                 Ticker_log_mean, params, Ticker_max, Ticker_processed = self._get_data(Ticker_log_train)
                 
@@ -124,9 +124,9 @@ class Exp_GAN(Exp_Basic):
                 # step 3. Dataset load
                 dataset = StockDataset(Ticker_processed, self.args.seq_len)
                 dataloader = torch.utils.data.DataLoader(dataset, 
-                                         batch_size=self.args.batch_size, 
-                                         shuffle=True, 
-                                         num_workers=self.args.num_workers)
+                                        batch_size=self.args.batch_size, 
+                                        shuffle=True, 
+                                        num_workers=self.args.num_workers)
                 
                 # ====================================
                 # step 4. Model train                
@@ -137,6 +137,9 @@ class Exp_GAN(Exp_Basic):
                 best_epoch = 0
                 best_netG = None
                 best_netD = None
+                best_ks_stat = None
+                best_ks_pvalue = None
+                best_coverage = None
                 
                 for epoch in progress:
                     for i, data in enumerate(dataloader, 0):
@@ -146,7 +149,7 @@ class Exp_GAN(Exp_Basic):
                         noise = torch.randn(batch_size, seq_len, self.args.noise_input_size, device=self.device)
                         fake = netG(noise).detach()
 
-                        # Discriminator                        
+                        # Discriminator update                        
                         if self.args.model_name == 'VanillaGAN':
                             lossD = -(torch.mean(torch.log(netD(real))) + torch.mean(torch.log(1. - netD(fake))))
                             lossD.backward()
@@ -206,6 +209,9 @@ class Exp_GAN(Exp_Basic):
                                 best_epoch = epoch + 1
                                 best_netG = copy.deepcopy(netG)
                                 best_netD = copy.deepcopy(netD)
+                                best_ks_stat = ks_stat
+                                best_ks_pvalue = ks_pvalue
+                                best_coverage = coverage
                                 early_stop_counter = 0
                             else:
                                 if lossG.item() < best_loss - self.args.loss_tolerance:
@@ -213,18 +219,21 @@ class Exp_GAN(Exp_Basic):
                                     best_epoch = epoch + 1
                                     best_netG = copy.deepcopy(netG)
                                     best_netD = copy.deepcopy(netD)
+                                    best_ks_stat = ks_stat
+                                    best_ks_pvalue = ks_pvalue
+                                    best_coverage = coverage
                                     early_stop_counter = 0
                                 else:
                                     early_stop_counter += 1
                                     if early_stop_counter >= self.args.early_stop_patience:
-                                        print(f"[Early Stopping] Epoch {epoch+1}: No improvement for {early_stop_counter} consecutive epochs."
-                                              f" KS statistic = {ks_stat:.6f}, KS p-value = {ks_pvalue:.4f}, Coverage = {coverage:.4f}")
+                                        print(f"\n[Early Stopping] Epoch {epoch+1}: No improvement for {early_stop_counter} consecutive epochs.")
                                         break                    
                     if early_stop_counter >= self.args.early_stop_patience:
                         break
                 
-                # Checkpoint 저장 시, 별도의 폴더 생성 없이 파일명에 슬라이딩 윈도우 번호 접두어 추가
+                # 학습 종료 후, best 시점의 지표 출력
                 if best_netG is not None:
+                    print(f"\n[Best INFO] Epoch: {best_epoch} | Generator Loss: {best_loss:.8f} | KS Statistic: {best_ks_stat:.6f} (p-value: {best_ks_pvalue:.4f}) | Coverage: {best_coverage:.4f}")
                     netG = best_netG
                     netD = best_netD
                     final_epoch = best_epoch
@@ -264,7 +273,7 @@ class Exp_GAN(Exp_Basic):
                 '''
                 Generate Fake Data using GBM (Test period)
                 '''                
-                test_length = len(test_df) - 1  # 첫 날 가격 제외
+                test_length = len(test_df) - 1  # 첫 날 가격 제외 (이미 train_df의 마지막 행값을 기준으로 GBM의 첫 시점 가격을 매겼기 때문)
                 T = test_length / 252  # 거래일 기준 연 단위
                 dt = 1 / 252
 

@@ -30,19 +30,25 @@ def W_params(z, params):
 def inverse(z, params):
     return params[0] + params[1] * (z * np.exp(z * z * (params[2] * 0.5)))
 
-def igmm(z, eps=1e-6, max_iter=1000):
-    delta = delta_init(z)
-    params = [np.median(z), np.std(z) * (1. - 2. * delta) ** 0.75, delta]
-    for k in range(max_iter):
-        params_old = params
-        u = (z - params[0]) / params[1]
-        params[2] = delta_gmm(u)
-        x = W_params(z, params)
-        params[0], params[1] = np.mean(x), np.std(x)
+def igmm(z, eps=1e-6, max_iter=100):
+    try:
+        delta = delta_init(z)
+        params = [np.median(z), np.std(z) * (1. - 2. * delta) ** 0.75, delta]
+        for k in range(max_iter):
+            params_old = params
+            u = (z - params[0]) / params[1]
+            params[2] = delta_gmm(u)
+            x = W_params(z, params)
+            params[0], params[1] = np.mean(x), np.std(x)
 
-        if np.linalg.norm(np.array(params) - np.array(params_old)) < eps:
-            break
-        if k == max_iter - 1:
-            raise ValueError("Solution not found")
+            if np.linalg.norm(np.array(params) - np.array(params_old)) < eps:
+                break
+            if k == max_iter - 1:
+                raise ValueError("Solution not found")
 
-    return params
+        return params
+    
+    except ValueError as e:
+        default_delta = 0.01  
+        return [np.median(z), np.std(z), default_delta]
+        

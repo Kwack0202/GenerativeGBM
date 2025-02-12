@@ -36,7 +36,7 @@ class Exp_Basic(object):
             raise ValueError(f"Unsupported model_type: {self.args.model_type}")
 
     # ======================================================
-    # Defining a model
+    # Define models
     def _build_generator(self):
         raise NotImplementedError("GAN: Generator is not defined")
 
