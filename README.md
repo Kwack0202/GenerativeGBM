@@ -23,4 +23,8 @@ python run.py \
 sh ./scripts/train.sh
 ```
 ![Framework](./assets/result_sample(MSFT).png)
-![Framework](./assets/result_sample_noise_distribution(MSFT).png) ![Framework](./assets/result_sample(MSFT)_qq_plot.png)
+
+<div style="display: flex; gap: 20px;">
+  <img src="./assets/result_sample(MSFT).png" style="width: 50%;">
+  <img src="./assets/result_sample_noise_distribution(MSFT).png" style="width: 50%;">
+</div>
