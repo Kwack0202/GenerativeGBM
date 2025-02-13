@@ -23,3 +23,5 @@ python run.py \
 sh ./scripts/train.sh
 ```
 ![Framework](./assets/result_sample(MSFT).png)
+![Framework](./assets/result_sample_noise_distribution(MSFT).png)
+![Framework](./assets/result_sample(MSFT)_qq_plot.png)
