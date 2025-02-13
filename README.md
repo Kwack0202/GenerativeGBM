@@ -1,6 +1,5 @@
 ## GenerativeGBM
-A project to combine generative AI and GBM to generate high-quality virtual stock price data and develop stock price prediction models.
-
+This project combines generative models and GBM to generate high-quality virtual stock price data and develop stock price prediction models.
 
 ## Usage
 ### 1. Download Origin Stock Data 📊 
@@ -18,4 +17,8 @@ python run.py \
    --end_day 2025-01-01 \
 ```
 
-code update soon~~~!! (코드를 멋지게 만들어볼게요!)
+### 2. Train 📑
+**shell file**
+```
+sh ./scripts/train.sh
+```
