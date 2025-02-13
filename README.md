@@ -1,8 +1,6 @@
 ## GenerativeGBM
 This project combines generative models and GBM to generate high-quality virtual stock price data and develop stock price prediction models.
 
-![Framework](./assets/result_sample(MSFT).png)
-
 ## Usage
 ### 1. Download Origin Stock Data 📊 
 **shell file**
@@ -24,3 +22,4 @@ python run.py \
 ```
 sh ./scripts/train.sh
 ```
+![Framework](./assets/result_sample(MSFT).png)
