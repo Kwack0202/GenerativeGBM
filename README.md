@@ -24,9 +24,7 @@ sh ./scripts/train.sh
 ```
 ![Framework](./assets/result_sample(MSFT).png)
 
-<table>
-  <tr>
-      <td><img src="./assets/result_sample_noise_distribution(MSFT).png" width="400"></td>
-      <td><img src="./assets/result_sample(MSFT)_qq_plot.png" width="400"></td>
-  </tr>
-</table>
+<div style="display: flex; gap: 10px;">
+  <img src="./assets/result_sample(MSFT)_qq_plot.png" style="width: 50%;">
+  <img src="./assets/result_sample_noise_distribution(MSFT).png" style="width: 50%;">
+</div>
